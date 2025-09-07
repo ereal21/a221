@@ -1028,12 +1028,20 @@ async def confirm_buy_callback_handler(call: CallbackQuery):
     TgConfig.STATE[f'{user_id}_pending_item'] = item_name
     TgConfig.STATE[f'{user_id}_price'] = price
     text = t(lang, 'confirm_purchase', item=display_name(item_name), price=price)
-    await bot.edit_message_text(
-        chat_id=call.message.chat.id,
-        message_id=call.message.message_id,
-        text=text,
-        reply_markup=confirm_purchase_menu(item_name, lang)
-    )
+    if call.message.content_type in ('photo', 'video'):
+        await bot.edit_message_caption(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            caption=text,
+            reply_markup=confirm_purchase_menu(item_name, lang),
+        )
+    else:
+        await bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=text,
+            reply_markup=confirm_purchase_menu(item_name, lang),
+        )
 
 async def apply_promo_callback_handler(call: CallbackQuery):
     item_name = call.data[len('applypromo_'):]
@@ -1044,12 +1052,21 @@ async def apply_promo_callback_handler(call: CallbackQuery):
     lang = get_user_language(user_id) or 'en'
     TgConfig.STATE[user_id] = 'wait_promo'
     TgConfig.STATE[f'{user_id}_message_id'] = call.message.message_id
-    await bot.edit_message_text(
-        chat_id=call.message.chat.id,
-        message_id=call.message.message_id,
-        text=t(lang, 'promo_prompt'),
-        reply_markup=back(f'confirm_{item_name}')
-    )
+    TgConfig.STATE[f'{user_id}_message_type'] = call.message.content_type
+    if call.message.content_type in ('photo', 'video'):
+        await bot.edit_message_caption(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            caption=t(lang, 'promo_prompt'),
+            reply_markup=back(f'confirm_{item_name}')
+        )
+    else:
+        await bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=t(lang, 'promo_prompt'),
+            reply_markup=back(f'confirm_{item_name}')
+        )
 
 async def process_promo_code(message: Message):
     bot, user_id = await get_bot_user_ids(message)
@@ -1059,6 +1076,7 @@ async def process_promo_code(message: Message):
     item_name = TgConfig.STATE.get(f'{user_id}_pending_item')
     price = TgConfig.STATE.get(f'{user_id}_price')
     message_id = TgConfig.STATE.get(f'{user_id}_message_id')
+    message_type = TgConfig.STATE.get(f'{user_id}_message_type')
     lang = get_user_language(user_id) or 'en'
     await bot.delete_message(chat_id=message.chat.id, message_id=message.message_id)
     promo = get_promocode(code)
@@ -1070,18 +1088,46 @@ async def process_promo_code(message: Message):
         text = t(lang, 'promo_applied', price=new_price)
     else:
         text = t(lang, 'promo_invalid')
-    await bot.edit_message_text(
-        chat_id=message.chat.id,
-        message_id=message_id,
-        text=text,
-        reply_markup=confirm_purchase_menu(item_name, lang, show_promo=False)
-    )
+    if message_type in ('photo', 'video'):
+        await bot.edit_message_caption(
+            chat_id=message.chat.id,
+            message_id=message_id,
+            caption=text,
+            reply_markup=confirm_purchase_menu(item_name, lang, show_promo=False)
+        )
+    else:
+        await bot.edit_message_text(
+            chat_id=message.chat.id,
+            message_id=message_id,
+            text=text,
+            reply_markup=confirm_purchase_menu(item_name, lang, show_promo=False)
+        )
     TgConfig.STATE[user_id] = None
+    TgConfig.STATE.pop(f'{user_id}_message_type', None)
 
 async def buy_item_callback_handler(call: CallbackQuery):
     item_name = call.data[4:]
     bot, user_id = await get_bot_user_ids(call)
     msg = call.message.message_id
+    is_media = call.message.content_type in ('photo', 'video')
+    async def edit(text, reply_markup=None, parse_mode=None):
+        if is_media:
+            await bot.edit_message_caption(
+                chat_id=call.message.chat.id,
+                message_id=msg,
+                caption=text,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode,
+            )
+        else:
+            await bot.edit_message_text(
+                text,
+                chat_id=call.message.chat.id,
+                message_id=msg,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode,
+            )
+
     item_info_list = get_item_info(item_name, user_id)
     item_price = TgConfig.STATE.get(f'{user_id}_price', item_info_list["price"])
     user_balance = get_user_balance(user_id)
@@ -1179,10 +1225,8 @@ async def buy_item_callback_handler(call: CallbackQuery):
                     log_file.write(f"{formatted_time} user:{user_id} item:{item_name} price:{item_price}\n")
 
                 if not gift_to:
-                    await bot.edit_message_text(
-                        chat_id=call.message.chat.id,
-                        message_id=msg,
-                        text=f'✅ Item purchased. 📦 Total Purchases: {purchases}',
+                    await edit(
+                        f'✅ Item purchased. 📦 Total Purchases: {purchases}',
                         reply_markup=back(f'item_{item_name}')
                     )
 
@@ -1198,12 +1242,10 @@ async def buy_item_callback_handler(call: CallbackQuery):
                     recipient_lang = get_user_language(gift_to) or 'en'
                     await bot.send_message(gift_to, t(recipient_lang, 'gift_received', item=value_data['item_name'], user=username))
                 else:
-                    await bot.edit_message_text(
-                        chat_id=call.message.chat.id,
-                        message_id=msg,
-                        text=text,
-                        parse_mode='HTML',
-                        reply_markup=home_markup(get_user_language(user_id) or 'en')
+                    await edit(
+                        text,
+                        reply_markup=home_markup(get_user_language(user_id) or 'en'),
+                        parse_mode='HTML'
                     )
                 photo_desc = value_data['value']
 
@@ -1225,10 +1267,8 @@ async def buy_item_callback_handler(call: CallbackQuery):
                     logger.info(f"User {user_id} unlocked achievement gift_sent")
             else:
                 try:
-                    await bot.edit_message_text(
-                        chat_id=call.message.chat.id,
-                        message_id=msg,
-                        text=f'✅ Item purchased. 📦 Total Purchases: {purchases}',
+                    await edit(
+                        f'✅ Item purchased. 📦 Total Purchases: {purchases}',
                         reply_markup=back(f'item_{item_name}')
                     )
                 except MessageNotModified:
@@ -1270,10 +1310,7 @@ async def buy_item_callback_handler(call: CallbackQuery):
             return
 
             if not gift_to:
-                await bot.edit_message_text(chat_id=call.message.chat.id,
-                                            message_id=msg,
-                                            text='❌ Item out of stock',
-                                            reply_markup=back(f'item_{item_name}'))
+                await edit('❌ Item out of stock', reply_markup=back(f'item_{item_name}'))
         TgConfig.STATE.pop(f'{user_id}_pending_item', None)
         TgConfig.STATE.pop(f'{user_id}_price', None)
         TgConfig.STATE.pop(f'{user_id}_promo_applied', None)
@@ -1284,12 +1321,7 @@ async def buy_item_callback_handler(call: CallbackQuery):
     lang = get_user_language(user_id) or 'en'
     # Ensure the item is available before prompting for payment method.
     if not get_item_value(item_name):
-        await bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=msg,
-            text='❌ Item out of stock',
-            reply_markup=back(f'item_{item_name}')
-        )
+        await edit('❌ Item out of stock', reply_markup=back(f'item_{item_name}'))
         TgConfig.STATE.pop(f'{user_id}_pending_item', None)
         TgConfig.STATE.pop(f'{user_id}_price', None)
         TgConfig.STATE.pop(f'{user_id}_promo_applied', None)
@@ -1298,10 +1330,8 @@ async def buy_item_callback_handler(call: CallbackQuery):
     TgConfig.STATE[f'{user_id}_deduct'] = user_balance
     TgConfig.STATE[user_id] = 'purchase_crypto'
     missing = item_price - user_balance
-    await bot.edit_message_text(
+    await edit(
         t(lang, 'need_top_up', missing=f'{missing:.2f}'),
-        chat_id=call.message.chat.id,
-        message_id=msg,
         reply_markup=crypto_choice_purchase(item_name, lang),
     )
     if gift_to:
@@ -1350,12 +1380,20 @@ async def purchase_crypto_payment(call: CallbackQuery):
 
     value_data = get_item_value(item_name)
     if not value_data:
-        await bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text='❌ Item out of stock',
-            reply_markup=back(f'item_{item_name}')
-        )
+        if call.message.content_type in ('photo', 'video'):
+            await bot.edit_message_caption(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                caption='❌ Item out of stock',
+                reply_markup=back(f'item_{item_name}')
+            )
+        else:
+            await bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text='❌ Item out of stock',
+                reply_markup=back(f'item_{item_name}')
+            )
         TgConfig.STATE.pop(f'{user_id}_pending_item', None)
         TgConfig.STATE.pop(f'{user_id}_price', None)
         TgConfig.STATE.pop(f'{user_id}_promo_applied', None)
