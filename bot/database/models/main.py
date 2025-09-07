@@ -236,6 +236,27 @@ class PromoCode(Database.BASE):
         self.active = active
 
 
+class Reseller(Database.BASE):
+    __tablename__ = 'resellers'
+    user_id = Column(BigInteger, ForeignKey('users.telegram_id'), primary_key=True, unique=True)
+
+    def __init__(self, user_id: int):
+        self.user_id = user_id
+
+
+class ResellerPrice(Database.BASE):
+    __tablename__ = 'reseller_prices'
+    id = Column(Integer, primary_key=True)
+    reseller_id = Column(BigInteger, ForeignKey('resellers.user_id'), nullable=False)
+    item_name = Column(String(100), ForeignKey('goods.name'), nullable=False)
+    price = Column(BigInteger, nullable=False)
+
+    def __init__(self, reseller_id: int, item_name: str, price: int):
+        self.reseller_id = reseller_id
+        self.item_name = item_name
+        self.price = price
+
+
 class StockNotification(Database.BASE):
     __tablename__ = 'stock_notifications'
     id = Column(Integer, primary_key=True)

@@ -489,8 +489,9 @@ async def assign_photo_receive_media(message: Message):
         return
     stock_path = get_next_file_path(item, ext)
     await file.download(destination_file=stock_path)
-    preview_path = os.path.join(preview_folder, os.path.basename(stock_path))
-    shutil.copy(stock_path, preview_path)
+    preview_file = os.path.join(preview_folder, f'preview.{ext}')
+    if not os.path.exists(preview_file):
+        shutil.copy(stock_path, preview_file)
     TgConfig.STATE[f'{user_id}_stock_path'] = stock_path
     TgConfig.STATE[user_id] = 'assign_photo_wait_desc'
     await bot.delete_message(chat_id=message.chat.id, message_id=message.message_id)
@@ -1101,6 +1102,9 @@ async def add_item_subcategory_selected(call: CallbackQuery):
     preview_folder = os.path.join('assets', 'product_photos', internal_name)
     os.makedirs(preview_folder, exist_ok=True)
     if preview_src and os.path.isfile(preview_src):
+        ext = os.path.splitext(preview_src)[1]
+        shutil.copy(preview_src, os.path.join(preview_folder, f'preview{ext}'))
+
         shutil.copy(preview_src, os.path.join(preview_folder, os.path.basename(preview_src)))
     create_item(internal_name, item_description, item_price, sub, None)
     admin_info = await bot.get_chat(user_id)

@@ -329,6 +329,7 @@ def shop_management(role: int) -> InlineKeyboardMarkup:
         [InlineKeyboardButton('📦 Prekių įpakavimas', callback_data='goods_management')],
         [InlineKeyboardButton('🗂️ Kategorijų kūrimas', callback_data='categories_management')],
         [InlineKeyboardButton('🏷️ Nuolaidų kodai', callback_data='promo_management')],
+        [InlineKeyboardButton('🤝 Reselleriai', callback_data='resellers_management')],
         [InlineKeyboardButton('📢 Pranešimų siuntimas', callback_data='send_message')],
     ]
     if role & Permission.OWN:
@@ -450,6 +451,25 @@ def categories_management() -> InlineKeyboardMarkup:
         [InlineKeyboardButton('🔙 Grįžti atgal', callback_data='shop_management')]
     ]
     return InlineKeyboardMarkup(inline_keyboard=inline_keyboard)
+
+
+def resellers_management() -> InlineKeyboardMarkup:
+    inline_keyboard = [
+        [InlineKeyboardButton('➕ Pridėti resellerį', callback_data='reseller_add')],
+        [InlineKeyboardButton('➖ Išimti resellerį', callback_data='reseller_remove')],
+        [InlineKeyboardButton('🏷️ Taikyti kainas', callback_data='reseller_prices')],
+        [InlineKeyboardButton('🔙 Grįžti atgal', callback_data='shop_management')],
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=inline_keyboard)
+
+
+def resellers_list(resellers: list[tuple[int, str | None]], action: str, back_data: str) -> InlineKeyboardMarkup:
+    markup = InlineKeyboardMarkup()
+    for user_id, username in resellers:
+        name = f'@{username}' if username else str(user_id)
+        markup.add(InlineKeyboardButton(name, callback_data=f'{action}_{user_id}'))
+    markup.add(InlineKeyboardButton('🔙 Grįžti atgal', callback_data=back_data))
+    return markup
 
 
 def promo_codes_management() -> InlineKeyboardMarkup:
