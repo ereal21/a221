@@ -1000,6 +1000,32 @@ async def add_item_price(message: Message):
                                     reply_markup=back('item-management'))
         return
     TgConfig.STATE[f'{user_id}_price'] = message.text
+    TgConfig.STATE[user_id] = 'create_item_photo'
+    await bot.edit_message_text(chat_id=message.chat.id,
+                                message_id=message_id,
+                                text='Send preview photo for item:',
+                                reply_markup=back('item-management'))
+
+
+async def add_item_preview_photo(message: Message):
+    bot, user_id = await get_bot_user_ids(message)
+    if TgConfig.STATE.get(user_id) != 'create_item_photo':
+        return
+    message_id = TgConfig.STATE.get(f'{user_id}_message_id')
+    await bot.delete_message(chat_id=message.chat.id, message_id=message.message_id)
+    if not message.photo:
+        await bot.edit_message_text(chat_id=message.chat.id,
+                                    message_id=message_id,
+                                    text='❌ Send a photo',
+                                    reply_markup=back('item-management'))
+        return
+    file = message.photo[-1]
+    temp_folder = os.path.join('assets', 'temp_previews')
+    os.makedirs(temp_folder, exist_ok=True)
+    temp_path = os.path.join(temp_folder, f'{user_id}.jpg')
+    await file.download(destination_file=temp_path)
+    TgConfig.STATE[f'{user_id}_preview_path'] = temp_path
+    TgConfig.STATE[user_id] = None
     mains = get_all_category_names()
     markup = InlineKeyboardMarkup()
     for main in mains:
@@ -1071,6 +1097,11 @@ async def add_item_subcategory_selected(call: CallbackQuery):
     item_description = TgConfig.STATE.get(f'{user_id}_description')
     item_price = TgConfig.STATE.get(f'{user_id}_price')
     internal_name = generate_internal_name(item_name)
+    preview_src = TgConfig.STATE.get(f'{user_id}_preview_path')
+    preview_folder = os.path.join('assets', 'product_photos', internal_name)
+    os.makedirs(preview_folder, exist_ok=True)
+    if preview_src and os.path.isfile(preview_src):
+        shutil.copy(preview_src, os.path.join(preview_folder, os.path.basename(preview_src)))
     create_item(internal_name, item_description, item_price, sub, None)
     admin_info = await bot.get_chat(user_id)
     logger.info(f"User {user_id} ({admin_info.first_name}) created new item \"{internal_name}\"")
@@ -1093,6 +1124,9 @@ async def add_item_more_no(call: CallbackQuery):
     TgConfig.STATE[user_id] = None
     for key in ('name', 'description', 'price'):
         TgConfig.STATE.pop(f'{user_id}_{key}', None)
+    preview = TgConfig.STATE.pop(f'{user_id}_preview_path', None)
+    if preview and os.path.isfile(preview):
+        os.remove(preview)
     TgConfig.STATE.pop(f'{user_id}_message_id', None)
     await bot.edit_message_text('✅ Items created, products added',
                                 chat_id=call.message.chat.id,
@@ -1557,6 +1591,9 @@ def register_shop_management(dp: Dispatcher) -> None:
                                 lambda c: TgConfig.STATE.get(c.from_user.id) == 'create_item_description')
     dp.register_message_handler(add_item_price,
                                 lambda c: TgConfig.STATE.get(c.from_user.id) == 'create_item_price')
+    dp.register_message_handler(add_item_preview_photo,
+                                lambda c: TgConfig.STATE.get(c.from_user.id) == 'create_item_photo',
+                                content_types=['photo', 'text'])
     dp.register_message_handler(assign_photo_receive_media,
                                 lambda c: TgConfig.STATE.get(c.from_user.id) == 'assign_photo_wait_media',
                                 content_types=['photo', 'video'])
