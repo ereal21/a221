@@ -102,7 +102,7 @@ def get_subcategories(parent_name: str) -> list[str]:
             .filter(Categories.parent_name == parent_name).all()]
     result = []
     for sub in subs:
-        if get_all_items(sub):
+        if get_all_items(sub) or get_subcategories(sub):
             result.append(sub)
     return result
 
