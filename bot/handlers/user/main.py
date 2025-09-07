@@ -1127,6 +1127,7 @@ async def buy_item_callback_handler(call: CallbackQuery):
                 reply_markup=reply_markup,
                 parse_mode=parse_mode,
             )
+
     item_info_list = get_item_info(item_name, user_id)
     item_price = TgConfig.STATE.get(f'{user_id}_price', item_info_list["price"])
     user_balance = get_user_balance(user_id)
