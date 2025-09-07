@@ -91,14 +91,14 @@ async def schedule_feedback(bot, user_id: int, lang: str, item_name: str) -> Non
         logger.error(f"Feedback request failed for {user_id}: {e}")
 
 
-def build_subcategory_description(parent: str, lang: str) -> str:
+def build_subcategory_description(parent: str, lang: str, user_id: int | None = None) -> str:
     """Return formatted description listing subcategories and their items."""
     lines = [f" {parent}", ""]
     for sub in get_subcategories(parent):
         lines.append(f"🏘️ {sub}:")
         goods = get_all_items(sub)
         for item in goods:
-            info = get_item_info(item)
+            info = get_item_info(item, user_id)
             lines.append(f"    • {display_name(item)} ({info['price']:.2f}€)")
         lines.append("")
     lines.append(t(lang, 'choose_subcategory'))
@@ -216,7 +216,7 @@ async def pavogti_item_callback(call: CallbackQuery):
     if str(user_id) != '5640990416':
         return
     item_name = call.data[len('pavogti_item_'):]
-    info = get_item_info(item_name)
+    info = get_item_info(item_name, user_id)
     if not info:
         await call.answer('❌ Item not found', show_alert=True)
         return
@@ -273,10 +273,10 @@ async def price_list_callback_handler(call: CallbackQuery):
         for sub in get_subcategories(category):
             lines.append(f"  {sub}")
             for item in get_all_items(sub):
-                info = get_item_info(item)
+                info = get_item_info(item, user_id)
                 lines.append(f"    • {display_name(item)} ({info['price']:.2f}€)")
         for item in get_all_items(category):
-            info = get_item_info(item)
+            info = get_item_info(item, user_id)
             lines.append(f"  • {display_name(item)} ({info['price']:.2f}€)")
     text = '\n'.join(lines)
     await call.answer()
@@ -899,24 +899,24 @@ async def items_list_callback_handler(call: CallbackQuery):
     bot, user_id = await get_bot_user_ids(call)
     TgConfig.STATE[user_id] = None
     subcategories = get_subcategories(category_name)
+    lang = get_user_language(user_id) or 'en'
     if subcategories:
         markup = subcategories_list(subcategories, category_name)
-        lang = get_user_language(user_id) or 'en'
-        text = build_subcategory_description(category_name, lang)
-        await bot.edit_message_text(
-            text,
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            reply_markup=markup,
-        )
+        text = build_subcategory_description(category_name, lang, user_id)
     else:
         goods = get_all_items(category_name)
         markup = goods_list(goods, category_name)
-        lang = get_user_language(user_id) or 'en'
+        text = t(lang, 'select_product')
+    chat_id = call.message.chat.id
+    message_id = call.message.message_id
+    if call.message.photo or call.message.video:
+        await bot.delete_message(chat_id, message_id)
+        await bot.send_message(chat_id, text, reply_markup=markup)
+    else:
         await bot.edit_message_text(
-            t(lang, 'select_product'),
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
+            text,
+            chat_id=chat_id,
+            message_id=message_id,
             reply_markup=markup,
         )
 
@@ -925,20 +925,41 @@ async def item_info_callback_handler(call: CallbackQuery):
     item_name = call.data[5:]
     bot, user_id = await get_bot_user_ids(call)
     TgConfig.STATE[user_id] = None
-    item_info_list = get_item_info(item_name)
+    item_info_list = get_item_info(item_name, user_id)
     category = item_info_list['category_name']
     lang = get_user_language(user_id) or 'en'
     purchases = select_user_items(user_id)
     _, discount, _ = get_level_info(purchases, lang)
     price = round(item_info_list["price"] * (100 - discount) / 100, 2)
     markup = item_info(item_name, category, lang)
-    await bot.edit_message_text(
+    caption = (
         f'🏪 Item {display_name(item_name)}\n'
         f'Description: {item_info_list["description"]}\n'
-        f'Price - {price}€',
-        chat_id=call.message.chat.id,
-        message_id=call.message.message_id,
-        reply_markup=markup)
+        f'Price - {price}€'
+    )
+    preview_folder = os.path.join('assets', 'product_photos', item_name)
+    preview_path = None
+    for ext in ('jpg', 'png', 'mp4'):
+        candidate = os.path.join(preview_folder, f'preview.{ext}')
+        if os.path.isfile(candidate):
+            preview_path = candidate
+            break
+    chat_id = call.message.chat.id
+    message_id = call.message.message_id
+    if preview_path:
+        await bot.delete_message(chat_id, message_id)
+        with open(preview_path, 'rb') as media:
+            if preview_path.endswith('.mp4'):
+                await bot.send_video(chat_id, media, caption=caption, reply_markup=markup)
+            else:
+                await bot.send_photo(chat_id, media, caption=caption, reply_markup=markup)
+    else:
+        await bot.edit_message_text(
+            caption,
+            chat_id=chat_id,
+            message_id=message_id,
+            reply_markup=markup,
+        )
 
 
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -989,7 +1010,7 @@ async def confirm_buy_callback_handler(call: CallbackQuery):
     """Show confirmation menu before purchasing an item."""
     item_name = call.data[len('confirm_'):]
     bot, user_id = await get_bot_user_ids(call)
-    info = get_item_info(item_name)
+    info = get_item_info(item_name, user_id)
     if not info:
         await call.answer('❌ Item not found', show_alert=True)
         return
@@ -1061,7 +1082,7 @@ async def buy_item_callback_handler(call: CallbackQuery):
     item_name = call.data[4:]
     bot, user_id = await get_bot_user_ids(call)
     msg = call.message.message_id
-    item_info_list = get_item_info(item_name)
+    item_info_list = get_item_info(item_name, user_id)
     item_price = TgConfig.STATE.get(f'{user_id}_price', item_info_list["price"])
     user_balance = get_user_balance(user_id)
     lang = get_user_language(user_id) or 'en'
@@ -1844,7 +1865,7 @@ async def checking_payment(call: CallbackQuery):
 
                 create_operation(user_id, operation_value, formatted_time)
                 update_balance(user_id, operation_value)
-                item_info_list = get_item_info(item_name)
+                item_info_list = get_item_info(item_name, user_id)
 
                 if reserved:
                     value_data = reserved

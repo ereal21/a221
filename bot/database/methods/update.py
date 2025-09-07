@@ -7,6 +7,7 @@ from bot.database.models import (
     Categories,
     PromoCode,
     StockNotification,
+    ResellerPrice,
 )
 from bot.database import Database
 
@@ -85,6 +86,18 @@ def update_promocode(code: str, discount: int | None = None, expires_at: str | N
         return
     Database().session.query(PromoCode).filter(PromoCode.code == code).update(values=values)
     Database().session.commit()
+
+
+def set_reseller_price(reseller_id: int, item_name: str, price: int) -> None:
+    session = Database().session
+    entry = session.query(ResellerPrice).filter_by(
+        reseller_id=reseller_id, item_name=item_name
+    ).first()
+    if entry:
+        entry.price = price
+    else:
+        session.add(ResellerPrice(reseller_id=reseller_id, item_name=item_name, price=price))
+    session.commit()
 
 
 def clear_stock_notifications(item_name: str) -> None:

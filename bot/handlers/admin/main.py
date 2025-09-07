@@ -14,6 +14,7 @@ from bot.handlers.admin.assistant_management_states import register_assistant_ma
 from bot.handlers.admin.view_stock import register_view_stock
 from bot.handlers.admin.purchases import register_purchases
 from bot.handlers.admin.miscs import register_miscs
+from bot.handlers.admin.reseller_management_states import register_reseller_management
 from bot.handlers.other import get_bot_user_ids
 
 
@@ -74,4 +75,5 @@ def register_admin_handlers(dp: Dispatcher) -> None:
     register_assistant_management(dp)
     register_view_stock(dp)
     register_purchases(dp)
+    register_reseller_management(dp)
     register_miscs(dp)

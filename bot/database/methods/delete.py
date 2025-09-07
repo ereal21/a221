@@ -1,6 +1,6 @@
 import os
 from bot.utils.files import sanitize_name
-from bot.database.models import Database, Goods, ItemValues, Categories, UnfinishedOperations, PromoCode
+from bot.database.models import Database, Goods, ItemValues, Categories, UnfinishedOperations, PromoCode, Reseller, ResellerPrice
 
 
 def delete_item(item_name: str) -> None:
@@ -66,4 +66,11 @@ def buy_item(item_id: str, infinity: bool = False) -> None:
 def delete_promocode(code: str) -> None:
     session = Database().session
     session.query(PromoCode).filter(PromoCode.code == code).delete()
+    session.commit()
+
+
+def delete_reseller(user_id: int) -> None:
+    session = Database().session
+    session.query(ResellerPrice).filter(ResellerPrice.reseller_id == user_id).delete()
+    session.query(Reseller).filter(Reseller.user_id == user_id).delete()
     session.commit()
