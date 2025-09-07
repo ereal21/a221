@@ -382,11 +382,29 @@ async def assign_photos_callback_handler(call: CallbackQuery):
         await call.answer('Nepakanka teisių')
         return
     TgConfig.STATE[user_id] = None
-    categories = get_all_category_names()
+    mains = get_all_category_names()
+    markup = InlineKeyboardMarkup()
+    for main in mains:
+        markup.add(InlineKeyboardButton(main, callback_data=f'assign_photo_main_{main}'))
+    markup.add(InlineKeyboardButton('🔙 Back', callback_data='goods_management'))
+    await bot.edit_message_text('Choose main category:',
+                                chat_id=call.message.chat.id,
+                                message_id=call.message.message_id,
+                                reply_markup=markup)
+
+
+async def assign_photo_main_handler(call: CallbackQuery):
+    bot, user_id = await get_bot_user_ids(call)
+    role = check_role(user_id)
+    if not (role & Permission.SHOP_MANAGE or role & Permission.ASSIGN_PHOTOS):
+        await call.answer('Nepakanka teisių')
+        return
+    main = call.data[len('assign_photo_main_'):]
+    categories = get_all_subcategories(main)
     markup = InlineKeyboardMarkup()
     for cat in categories:
         markup.add(InlineKeyboardButton(cat, callback_data=f'assign_photo_cat_{cat}'))
-    markup.add(InlineKeyboardButton('🔙 Back', callback_data='goods_management'))
+    markup.add(InlineKeyboardButton('🔙 Back', callback_data='assign_photos'))
     await bot.edit_message_text('Choose category:',
                                 chat_id=call.message.chat.id,
                                 message_id=call.message.message_id,
@@ -404,11 +422,10 @@ async def assign_photo_category_handler(call: CallbackQuery):
     markup = InlineKeyboardMarkup()
     for sub in subcats:
         markup.add(InlineKeyboardButton(sub, callback_data=f'assign_photo_sub_{sub}'))
-    items = get_all_item_names(category)
-    for item in items:
-        markup.add(InlineKeyboardButton(display_name(item), callback_data=f'assign_photo_item_{item}'))
-    markup.add(InlineKeyboardButton('🔙 Back', callback_data='assign_photos'))
-    await bot.edit_message_text('Choose subcategory or item:',
+    parent = get_category_parent(category)
+    back_data = 'assign_photos' if parent is None else f'assign_photo_main_{parent}'
+    markup.add(InlineKeyboardButton('🔙 Back', callback_data=back_data))
+    await bot.edit_message_text('Choose subcategory:',
                                 chat_id=call.message.chat.id,
                                 message_id=call.message.message_id,
                                 reply_markup=markup)
@@ -425,7 +442,9 @@ async def assign_photo_subcategory_handler(call: CallbackQuery):
     markup = InlineKeyboardMarkup()
     for item in items:
         markup.add(InlineKeyboardButton(display_name(item), callback_data=f'assign_photo_item_{item}'))
-    markup.add(InlineKeyboardButton('🔙 Back', callback_data='assign_photos'))
+    parent = get_category_parent(sub)
+    back_data = f'assign_photo_cat_{parent}' if parent else 'assign_photos'
+    markup.add(InlineKeyboardButton('🔙 Back', callback_data=back_data))
     await bot.edit_message_text('Choose item:',
                                 chat_id=call.message.chat.id,
                                 message_id=call.message.message_id,
@@ -581,13 +600,13 @@ async def categories_callback_handler(call: CallbackQuery):
     await call.answer('Nepakanka teisių')
 
 
-async def add_category_callback_handler(call: CallbackQuery):
+async def add_main_category_callback_handler(call: CallbackQuery):
     bot, user_id = await get_bot_user_ids(call)
-    TgConfig.STATE[user_id] = 'add_category'
+    TgConfig.STATE[user_id] = 'add_main_category'
     TgConfig.STATE[f'{user_id}_message_id'] = call.message.message_id
     role = check_role(user_id)
     if role & Permission.SHOP_MANAGE:
-        await bot.edit_message_text('Enter category name',
+        await bot.edit_message_text('Enter main category name',
                                     chat_id=call.message.chat.id,
                                     message_id=call.message.message_id,
                                     reply_markup=back("categories_management"))
@@ -595,17 +614,17 @@ async def add_category_callback_handler(call: CallbackQuery):
     await call.answer('Nepakanka teisių')
 
 
-async def add_subcategory_callback_handler(call: CallbackQuery):
+async def add_category_callback_handler(call: CallbackQuery):
     bot, user_id = await get_bot_user_ids(call)
     TgConfig.STATE[f'{user_id}_message_id'] = call.message.message_id
     role = check_role(user_id)
     if role & Permission.SHOP_MANAGE:
-        categories = get_all_category_names()
+        mains = get_all_category_names()
         markup = InlineKeyboardMarkup()
-        for cat in categories:
-            markup.add(InlineKeyboardButton(cat, callback_data=f'choose_sub_parent_{cat}'))
+        for main in mains:
+            markup.add(InlineKeyboardButton(main, callback_data=f'choose_cat_parent_{main}'))
         markup.add(InlineKeyboardButton('🔙 Back', callback_data='categories_management'))
-        await bot.edit_message_text('Select parent category:',
+        await bot.edit_message_text('Select main category:',
                                     chat_id=call.message.chat.id,
                                     message_id=call.message.message_id,
                                     reply_markup=markup)
@@ -613,13 +632,65 @@ async def add_subcategory_callback_handler(call: CallbackQuery):
     await call.answer('Nepakanka teisių')
 
 
-async def choose_subcategory_parent(call: CallbackQuery):
+async def choose_category_parent(call: CallbackQuery):
     bot, user_id = await get_bot_user_ids(call)
-    parent = call.data[len('choose_sub_parent_'):]
-    TgConfig.STATE[user_id] = 'add_subcategory_name'
+    parent = call.data[len('choose_cat_parent_'):]
+    TgConfig.STATE[user_id] = 'add_category_name'
     TgConfig.STATE[f'{user_id}_parent'] = parent
     message_id = TgConfig.STATE.get(f'{user_id}_message_id')
     if not check_category(parent):
+        await bot.edit_message_text(chat_id=call.message.chat.id,
+                                    message_id=message_id,
+                                    text='❌ Parent category does not exist',
+                                    reply_markup=back('categories_management'))
+        TgConfig.STATE[user_id] = None
+        return
+    await bot.edit_message_text(chat_id=call.message.chat.id,
+                                message_id=message_id,
+                                text='Enter category name',
+                                reply_markup=back('categories_management'))
+
+
+async def add_subcategory_callback_handler(call: CallbackQuery):
+    bot, user_id = await get_bot_user_ids(call)
+    TgConfig.STATE[f'{user_id}_message_id'] = call.message.message_id
+    role = check_role(user_id)
+    if role & Permission.SHOP_MANAGE:
+        mains = get_all_category_names()
+        markup = InlineKeyboardMarkup()
+        for main in mains:
+            markup.add(InlineKeyboardButton(main, callback_data=f'choose_sub_main_{main}'))
+        markup.add(InlineKeyboardButton('🔙 Back', callback_data='categories_management'))
+        await bot.edit_message_text('Select main category:',
+                                    chat_id=call.message.chat.id,
+                                    message_id=call.message.message_id,
+                                    reply_markup=markup)
+        return
+    await call.answer('Nepakanka teisių')
+
+
+async def choose_subcategory_main(call: CallbackQuery):
+    bot, user_id = await get_bot_user_ids(call)
+    main = call.data[len('choose_sub_main_'):]
+    TgConfig.STATE[f'{user_id}_main'] = main
+    categories = get_all_subcategories(main)
+    markup = InlineKeyboardMarkup()
+    for cat in categories:
+        markup.add(InlineKeyboardButton(cat, callback_data=f'choose_sub_cat_{cat}'))
+    markup.add(InlineKeyboardButton('🔙 Back', callback_data='add_subcategory'))
+    await bot.edit_message_text('Select category:',
+                                chat_id=call.message.chat.id,
+                                message_id=call.message.message_id,
+                                reply_markup=markup)
+
+
+async def choose_subcategory_category(call: CallbackQuery):
+    bot, user_id = await get_bot_user_ids(call)
+    category = call.data[len('choose_sub_cat_'):]
+    TgConfig.STATE[user_id] = 'add_subcategory_name'
+    TgConfig.STATE[f'{user_id}_parent'] = category
+    message_id = TgConfig.STATE.get(f'{user_id}_message_id')
+    if not check_category(category):
         await bot.edit_message_text(chat_id=call.message.chat.id,
                                     message_id=message_id,
                                     text='❌ Parent category does not exist',
@@ -665,7 +736,7 @@ async def statistics_callback_handler(call: CallbackQuery):
     await call.answer('Nepakanka teisių')
 
 
-async def process_category_for_add(message: Message):
+async def process_main_category_for_add(message: Message):
     bot, user_id = await get_bot_user_ids(message)
     msg = message.text
     message_id = TgConfig.STATE.get(f'{user_id}_message_id')
@@ -676,17 +747,40 @@ async def process_category_for_add(message: Message):
     if category:
         await bot.edit_message_text(chat_id=message.chat.id,
                                     message_id=message_id,
-                                    text='❌ Category not created (already exists)',
+                                    text='❌ Main category not created (already exists)',
                                     reply_markup=back('categories_management'))
         return
     create_category(msg)
+    await bot.edit_message_text(chat_id=message.chat.id,
+                                message_id=message_id,
+                                text='✅ Main category created',
+                                reply_markup=back('categories_management'))
+    admin_info = await bot.get_chat(user_id)
+    logger.info(f"User {user_id} ({admin_info.first_name}) "
+                f'created new main category "{msg}"')
+
+
+async def process_category_name(message: Message):
+    bot, user_id = await get_bot_user_ids(message)
+    cat = message.text
+    message_id = TgConfig.STATE.get(f'{user_id}_message_id')
+    parent = TgConfig.STATE.get(f'{user_id}_parent')
+    TgConfig.STATE[user_id] = None
+    await bot.delete_message(chat_id=message.chat.id, message_id=message.message_id)
+    if check_category(cat):
+        await bot.edit_message_text(chat_id=message.chat.id,
+                                    message_id=message_id,
+                                    text='❌ Category already exists',
+                                    reply_markup=back('categories_management'))
+        return
+    create_category(cat, parent)
     await bot.edit_message_text(chat_id=message.chat.id,
                                 message_id=message_id,
                                 text='✅ Category created',
                                 reply_markup=back('categories_management'))
     admin_info = await bot.get_chat(user_id)
     logger.info(f"User {user_id} ({admin_info.first_name}) "
-                f'created new category "{msg}"')
+                f'created category "{cat}" under "{parent}"')
 
 
 async def process_subcategory_name(message: Message):
@@ -906,24 +1000,44 @@ async def add_item_price(message: Message):
                                     reply_markup=back('item-management'))
         return
     TgConfig.STATE[f'{user_id}_price'] = message.text
-    categories = get_all_category_names()
+    mains = get_all_category_names()
     markup = InlineKeyboardMarkup()
-    for cat in categories:
-        markup.add(InlineKeyboardButton(cat, callback_data=f'add_item_cat_{cat}'))
+    for main in mains:
+        markup.add(InlineKeyboardButton(main, callback_data=f'add_item_main_{main}'))
     markup.add(InlineKeyboardButton('🔙 Back', callback_data='item-management'))
     await bot.edit_message_text(chat_id=message.chat.id,
                                 message_id=message_id,
-                                text='Select category:',
+                                text='Select main category:',
                                 reply_markup=markup)
 
 
 async def add_item_choose_category(call: CallbackQuery):
     bot, user_id = await get_bot_user_ids(call)
-    categories = get_all_category_names()
+    mains = get_all_category_names()
+    markup = InlineKeyboardMarkup()
+    for main in mains:
+        markup.add(InlineKeyboardButton(main, callback_data=f'add_item_main_{main}'))
+    markup.add(InlineKeyboardButton('🔙 Back', callback_data='item-management'))
+    await bot.edit_message_text('Select main category:',
+                                chat_id=call.message.chat.id,
+                                message_id=call.message.message_id,
+                                reply_markup=markup)
+
+
+async def add_item_main_selected(call: CallbackQuery):
+    bot, user_id = await get_bot_user_ids(call)
+    main = call.data[len('add_item_main_'):]
+    categories = get_all_subcategories(main)
+    if not categories:
+        await bot.edit_message_text('❌ No categories in this main category',
+                                    chat_id=call.message.chat.id,
+                                    message_id=call.message.message_id,
+                                    reply_markup=back('add_item_choose_cat'))
+        return
     markup = InlineKeyboardMarkup()
     for cat in categories:
         markup.add(InlineKeyboardButton(cat, callback_data=f'add_item_cat_{cat}'))
-    markup.add(InlineKeyboardButton('🔙 Back', callback_data='item-management'))
+    markup.add(InlineKeyboardButton('🔙 Back', callback_data='add_item_choose_cat'))
     await bot.edit_message_text('Select category:',
                                 chat_id=call.message.chat.id,
                                 message_id=call.message.message_id,
@@ -944,21 +1058,10 @@ async def add_item_category_selected(call: CallbackQuery):
                                     message_id=call.message.message_id,
                                     reply_markup=markup)
         return
-    item_name = TgConfig.STATE.get(f'{user_id}_name')
-    item_description = TgConfig.STATE.get(f'{user_id}_description')
-    item_price = TgConfig.STATE.get(f'{user_id}_price')
-    internal_name = generate_internal_name(item_name)
-    create_item(internal_name, item_description, item_price, category, None)
-    admin_info = await bot.get_chat(user_id)
-    logger.info(f"User {user_id} ({admin_info.first_name}) created new item \"{internal_name}\"")
-    markup = InlineKeyboardMarkup().add(
-        InlineKeyboardButton('✅ Yes', callback_data='add_item_more_yes'),
-        InlineKeyboardButton('❌ No', callback_data='add_item_more_no')
-    )
-    await bot.edit_message_text('Add this product somewhere else?',
+    await bot.edit_message_text('❌ No subcategories in this category',
                                 chat_id=call.message.chat.id,
                                 message_id=call.message.message_id,
-                                reply_markup=markup)
+                                reply_markup=back('add_item_choose_cat'))
 
 
 async def add_item_subcategory_selected(call: CallbackQuery):
@@ -1367,6 +1470,8 @@ def register_shop_management(dp: Dispatcher) -> None:
                                        lambda c: c.data == 'show_bought_item')
     dp.register_callback_query_handler(assign_photos_callback_handler,
                                        lambda c: c.data == 'assign_photos')
+    dp.register_callback_query_handler(assign_photo_main_handler,
+                                       lambda c: c.data.startswith('assign_photo_main_'))
     dp.register_callback_query_handler(assign_photo_category_handler,
                                        lambda c: c.data.startswith('assign_photo_cat_'))
     dp.register_callback_query_handler(assign_photo_subcategory_handler,
@@ -1385,12 +1490,20 @@ def register_shop_management(dp: Dispatcher) -> None:
                                        lambda c: c.data == 'promo_management')
     dp.register_callback_query_handler(categories_callback_handler,
                                        lambda c: c.data == 'categories_management')
+    dp.register_callback_query_handler(add_main_category_callback_handler,
+                                       lambda c: c.data == 'add_main_category')
     dp.register_callback_query_handler(add_category_callback_handler,
                                        lambda c: c.data == 'add_category')
     dp.register_callback_query_handler(add_subcategory_callback_handler,
                                        lambda c: c.data == 'add_subcategory')
-    dp.register_callback_query_handler(choose_subcategory_parent,
-                                       lambda c: c.data.startswith('choose_sub_parent_'))
+    dp.register_callback_query_handler(choose_category_parent,
+                                       lambda c: c.data.startswith('choose_cat_parent_'))
+    dp.register_callback_query_handler(choose_subcategory_main,
+                                       lambda c: c.data.startswith('choose_sub_main_'))
+    dp.register_callback_query_handler(choose_subcategory_category,
+                                       lambda c: c.data.startswith('choose_sub_cat_'))
+    dp.register_callback_query_handler(add_item_main_selected,
+                                       lambda c: c.data.startswith('add_item_main_'))
     dp.register_callback_query_handler(add_item_category_selected,
                                        lambda c: c.data.startswith('add_item_cat_'))
     dp.register_callback_query_handler(add_item_subcategory_selected,
@@ -1460,8 +1573,10 @@ def register_shop_management(dp: Dispatcher) -> None:
                                 lambda c: TgConfig.STATE.get(c.from_user.id) == 'update_item_price')
     dp.register_message_handler(process_item_show,
                                 lambda c: TgConfig.STATE.get(c.from_user.id) == 'show_item')
-    dp.register_message_handler(process_category_for_add,
-                                lambda c: TgConfig.STATE.get(c.from_user.id) == 'add_category')
+    dp.register_message_handler(process_main_category_for_add,
+                                lambda c: TgConfig.STATE.get(c.from_user.id) == 'add_main_category')
+    dp.register_message_handler(process_category_name,
+                                lambda c: TgConfig.STATE.get(c.from_user.id) == 'add_category_name')
     dp.register_message_handler(process_subcategory_name,
                                 lambda c: TgConfig.STATE.get(c.from_user.id) == 'add_subcategory_name')
     dp.register_message_handler(check_category_for_update,
