@@ -4,7 +4,8 @@ import sqlalchemy
 from sqlalchemy import exc, func
 
 from bot.database.models import Database, User, ItemValues, Goods, Categories, Role, BoughtGoods, \
-    Operations, UnfinishedOperations, PromoCode, Achievement, UserAchievement, StockNotification
+    Operations, UnfinishedOperations, PromoCode, Achievement, UserAchievement, StockNotification, \
+    Reseller, ResellerPrice
 
 
 def check_user(telegram_id: int) -> User | None:
@@ -67,6 +68,17 @@ def get_all_users() -> list[tuple[int]]:
     return Database().session.query(User.telegram_id).all()
 
 
+def get_resellers() -> list[tuple[int, str | None]]:
+    session = Database().session
+    return session.query(User.telegram_id, User.username).join(
+        Reseller, Reseller.user_id == User.telegram_id
+    ).all()
+
+
+def is_reseller(user_id: int) -> bool:
+    return Database().session.query(Reseller).filter(Reseller.user_id == user_id).first() is not None
+
+
 def item_in_stock(item_name: str) -> bool:
     """Return True if item has unlimited quantity or remaining stock."""
     if check_value(item_name):
@@ -102,7 +114,7 @@ def get_subcategories(parent_name: str) -> list[str]:
             .filter(Categories.parent_name == parent_name).all()]
     result = []
     for sub in subs:
-        if get_all_items(sub):
+        if get_all_items(sub) or get_subcategories(sub):
             result.append(sub)
     return result
 
@@ -163,9 +175,19 @@ def get_bought_item_info(item_id: str) -> dict | None:
     return result.__dict__ if result else None
 
 
-def get_item_info(item_name: str) -> dict | None:
-    result = Database().session.query(Goods).filter(Goods.name == item_name).first()
-    return result.__dict__ if result else None
+def get_item_info(item_name: str, user_id: int | None = None) -> dict | None:
+    session = Database().session
+    result = session.query(Goods).filter(Goods.name == item_name).first()
+    if not result:
+        return None
+    data = result.__dict__.copy()
+    if user_id is not None:
+        price = session.query(ResellerPrice.price).filter_by(
+            reseller_id=user_id, item_name=item_name
+        ).first()
+        if price:
+            data['price'] = price[0]
+    return data
 
 
 def get_user_balance(telegram_id: int) -> float | None:

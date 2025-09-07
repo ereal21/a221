@@ -2,7 +2,7 @@ import sqlalchemy.exc
 import random
 import datetime
 from bot.database.models import User, ItemValues, Goods, Categories, BoughtGoods, \
-    Operations, UnfinishedOperations, PromoCode, UserAchievement, StockNotification
+    Operations, UnfinishedOperations, PromoCode, UserAchievement, StockNotification, Reseller, ResellerPrice
 from bot.database import Database
 
 
@@ -94,4 +94,10 @@ def grant_achievement(user_id: int, code: str, achieved_at: str) -> None:
 def add_stock_notification(user_id: int, item_name: str) -> None:
     session = Database().session
     session.add(StockNotification(user_id=user_id, item_name=item_name))
+    session.commit()
+
+
+def create_reseller(user_id: int) -> None:
+    session = Database().session
+    session.add(Reseller(user_id=user_id))
     session.commit()
