@@ -1104,6 +1104,8 @@ async def add_item_subcategory_selected(call: CallbackQuery):
     if preview_src and os.path.isfile(preview_src):
         ext = os.path.splitext(preview_src)[1]
         shutil.copy(preview_src, os.path.join(preview_folder, f'preview{ext}'))
+
+        shutil.copy(preview_src, os.path.join(preview_folder, os.path.basename(preview_src)))
     create_item(internal_name, item_description, item_price, sub, None)
     admin_info = await bot.get_chat(user_id)
     logger.info(f"User {user_id} ({admin_info.first_name}) created new item \"{internal_name}\"")
